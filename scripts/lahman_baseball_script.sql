@@ -24,16 +24,96 @@ FROM appearances -- 1871 - 2016
 
 -- 2. Find the name and height of the shortest player in the database. How many games did he play in? What is the name of the team for which he played?
  
- SELECT CONCAT 
- 
+ SELECT DISTINCT CONCAT(namefirst, ' ', namelast), 
+ 		CONCAT(CAST(FLOOR(height::numeric / 12) AS varchar(10)) , ' ft ', CAST((MOD(height::numeric,12)) AS varchar(10)) , ' in') as height,
+		g_all as games_played, teamid, name
+	   
+ FROM people
+ INNER JOIN (SELECT playerid, teamid, g_all
+		   FROM appearances
+		   WHERE playerid=(SELECT playerid
+						  FROM people
+						  WHERE height = (SELECT MIN(height)
+										 FROM people))) as sub
+	USING (playerid)
+INNER JOIN teams
+USING (teamid)
+
+-- Eddie Gaedel, 3ft7in, 1 game played for the St. Louis Browns
 
 -- 3. Find all players in the database who played at Vanderbilt University. Create a list showing each player’s first and last names as well as the total salary they earned in the major leagues. Sort this list in descending order by the total salary earned. Which Vanderbilt player earned the most money in the majors?
-	
+
+SELECT DISTINCT CONCAT(namefirst, ' ', namelast), MONEY(SUM(salary::numeric) OVER (PARTITION BY playerid)) as lifetime_salary
+FROM (SELECT *
+	 FROM people
+	 WHERE playerid IN (SELECT playerid
+					   FROM collegeplaying
+					   WHERE schoolid = 'vandy')) as vandy
+INNER JOIN salaries
+USING(playerid)
+ORDER BY lifetime_salary DESC;
+
+-- David Price made the most money with over 81 million bucks
 
 -- 4. Using the fielding table, group players into three groups based on their position: label players with position OF as "Outfield", those with position "SS", "1B", "2B", and "3B" as "Infield", and those with position "P" or "C" as "Battery". Determine the number of putouts made by each of these three groups in 2016.
-   
+
+SELECT 
+	CASE WHEN pos IN ('LF','RF','CF') THEN 'Outfield'
+	WHEN pos IN ('SS','1B','2B','3B') THEN 'Infield'
+	WHEN pos IN ('P','C') THEN 'Battery'
+	ELSE 'Not listed' END AS position_group, SUM(po) as total_putouts
+FROM fieldingpost
+WHERE yearid = '2016'
+GROUP BY position_group
+ORDER BY total_putouts DESC;
+
 -- 5. Find the average number of strikeouts per game by decade since 1920. Round the numbers you report to 2 decimal places. Do the same for home runs per game. Do you see any trends?
-   
+
+-- I keep fucking up how I'm counting games
+
+WITH games as ( 
+			SELECT DISTINCT yearid, MAX(g) as max_games, MAX(g) * COUNT(DISTINCT teamid)/2 as total_games, COUNT(distinct teamid) as teams, SUM(so) as so_total
+			FROM batting
+			GROUP BY yearid)
+
+SELECT FLOOR(b.yearID/10)*10 as decade, SUM(so_total/total_games)
+FROM batting as b
+JOIN games
+USING (yearid)
+WHERE yearid >= '1920'
+GROUP BY decade
+ORDER BY decade
+
+
+WITH games as ( 
+			SELECT DISTINCT yearid, MAX(g) as max_games, MAX(g) * COUNT(DISTINCT teamid)/2 as total_games, COUNT(distinct teamid) as teams
+			FROM batting
+			GROUP BY yearid)
+
+SELECT CASE WHEN yearID BETWEEN '1920' AND '1929' then '1920s'
+			WHEN yearID BETWEEN '1930' AND '1939' then '1930s'
+			ELSE 'later' END as decade, SUM(max_games)
+FROM batting as b
+JOIN games
+USING (yearid)
+WHERE yearid >= '1920'
+GROUP BY decade
+ORDER BY decade
+
+SELECT CASE WHEN yearID BETWEEN '1920' AND '1929' then '1920s'
+			WHEN yearID BETWEEN '1930' AND '1939' then '1930s'
+			ELSE 'later' END as decade, SUM(so)
+FROM batting
+WHERE yearid >= '1920'
+GROUP BY decade
+
+SELECT yearID, sum(so)/2430 -- estimate of games per season
+FROM Batting 
+GROUP BY yearid -- 24,000 so in 1991
+
+SELECT * 
+FROM batting 
+
 
 -- 6. Find the player who had the most success stealing bases in 2016, where __success__ is measured as the percentage of stolen base attempts which are successful. (A stolen base attempt results either in a stolen base or being caught stealing.) Consider only players who attempted _at least_ 20 stolen bases.
 	

@@ -126,7 +126,8 @@ ORDER BY playerid, teamid
 
 -- 3. Find all players in the database who played at Vanderbilt University. Create a list showing each player’s first and last names as well as the total salary they earned in the major leagues. Sort this list in descending order by the total salary earned. Which Vanderbilt player earned the most money in the majors?
 
-SELECT DISTINCT CONCAT(namefirst, ' ', namelast), MONEY(SUM(salary::numeric) OVER (PARTITION BY playerid)) as lifetime_salary
+SELECT DISTINCT CONCAT(namefirst, ' ', namelast), 
+	MONEY(SUM(salary::numeric) OVER (PARTITION BY playerid)) as lifetime_salary
 FROM (SELECT *
 	 FROM people
 	 WHERE playerid IN (SELECT playerid
@@ -226,17 +227,18 @@ WHERE WSwin = 'Y' AND (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982'
 -- St. Louis Cardinals in 2006 with 83 wins.
 
 WITH cte as (SELECT name, yearid, w, WSwin
-FROM teams
-WHERE w IN (SELECT MAX(w) OVER (PARTITION BY yearid) as w
-			FROM teams as sub
-			WHERE (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016') 
-				AND teams.yearid = sub.yearid))
+				FROM teams
+				WHERE w IN (SELECT MAX(w) OVER (PARTITION BY yearid) as w
+							FROM teams as sub
+							WHERE (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016') 
+							AND teams.yearid = sub.yearid))
 			 
 SELECT 
 	COUNT(*) as best_team_ws, 
 	CONCAT(ROUND((100 * COUNT(*)::float / (SELECT COUNT( DISTINCT yearid)
 											FROM teams
-											WHERE (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016'))::float)::numeric, 1),'%') 
+											WHERE (yearid BETWEEN '1970' AND '1980' 
+												   OR yearid BETWEEN '1982' AND '2016'))::float)::numeric, 1),'%') 
 											as pct_ws_highest_w
 FROM cte
 WHERE wswin = 'Y'
@@ -246,25 +248,115 @@ WHERE wswin = 'Y'
 
 -- 8. Using the attendance figures from the homegames table, find the teams and parks which had the top 5 average attendance per game in 2016 (where average attendance is defined as total attendance divided by number of games). Only consider parks where there were at least 10 games played. Report the park name, team name, and average attendance. Repeat for the lowest 5 average attendance.
 
-SELECT park_name, team, attendance/games as avg_attd, games
+SELECT teams.park, name, homegames.attendance/homegames.games as avg_attd
 FROM homegames
-JOIN parks
-USING (park)
+JOIN teams
+ON homegames.team = teams.teamid AND homegames.year = teams.yearid
 WHERE year = '2016' AND games >= 10
-ORDER BY attendance/games DESC 
-LIMIT 5;
+ORDER BY avg_attd DESC 
+LIMIT 5; -- Top 5
 
 
-SELECT park, team, attendance/games as avg_attd, games
+SELECT teams.park, name, homegames.attendance/homegames.games as avg_attd
 FROM homegames
+JOIN teams
+ON homegames.team = teams.teamid AND homegames.year = teams.yearid
 WHERE year = '2016' AND games >= 10
-ORDER BY attendance/games 
-LIMIT 5;
+ORDER BY avg_attd  
+LIMIT 5; -- Bottom 5
 
-SELECT *
-FROM homegames
-WHERE year = '2016'
+
 -- 9. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)? Give their full name and the teams that they were managing when they won the award.
+
+SELECT playerid, count(distinct lgid)
+FROM awardsmanagers
+WHERE awardid LIKE 'TSN%' 
+GROUP BY playerid
+HAVING count(distinct lgid) > 1
+ORDER BY count(distinct lgid) DESC -- this doesn't work bc TSN doesn't distinguish league before 1985
+
+SELECT a.yearid, CONCAT(p.namefirst, ' ', p.namelast), t.name, m.lgid
+FROM (SELECT playerid, yearid
+	  FROM awardsmanagers
+	  WHERE awardid LIKE 'TSN%') as a
+INNER JOIN managers as m
+ON a.playerid = m.playerid AND a.yearid = m.yearid
+INNER JOIN people as p
+ON p.playerid = a.playerid
+INNER JOIN teams as t
+ON m.teamid = t.teamid AND t.yearid=a.yearid
+WHERE a.playerid IN (SELECT playerid
+				  FROM awardsmanagers
+					 WHERE awardid LIKE 'TSN%'
+				  GROUP BY playerid
+				  HAVING COUNT(playerid)> 1)
+GROUP BY a.yearid, CONCAT(p.namefirst, ' ', p.namelast), t.name, m.lgid
+ORDER BY CONCAT(p.namefirst, ' ', p.namelast), yearid -- this gives all repeats for TSN winning managers. 54 rows
+
+SELECT CONCAT(p.namefirst, ' ', p.namelast), COUNT (distinct m.lgid)
+FROM (SELECT playerid, yearid
+	  FROM awardsmanagers
+	  WHERE awardid LIKE 'TSN%') as a
+INNER JOIN managers as m
+ON a.playerid = m.playerid AND a.yearid = m.yearid
+INNER JOIN people as p
+ON p.playerid = a.playerid
+INNER JOIN teams as t
+ON m.teamid = t.teamid AND t.yearid=a.yearid
+WHERE a.playerid IN (SELECT playerid
+				  FROM awardsmanagers
+					 WHERE awardid LIKE 'TSN%'
+				  GROUP BY playerid
+				  HAVING COUNT(playerid)> 1)
+GROUP BY CONCAT(p.namefirst, ' ', p.namelast)
+HAVING COUNT(distinct m.lgid) >1
+ORDER BY CONCAT(p.namefirst, ' ', p.namelast) -- This give all TSN winning managers from 2 leagues. Now how do I combine? 
+
+SELECT * 
+FROM people
+WHERE namelast = 'Cox'
+SELECT *
+FROM awardsmanagers
+WHERE awardid LIKE 'TSN%' -- so in 1986 TSN switched to awarding for each league 
+
+
+SELECT sub.name, year, team_name, sub.playerid, league
+FROM (SELECT playerid, yearid as year, CONCAT(p.namefirst, ' ', p.namelast) as name, awardid, COUNT(playerid) OVER (PARTITION BY playerid) as tsn_count
+		FROM awardsmanagers as a
+	  	LEFT JOIN people as p
+	  	USING (playerid)
+	  WHERE awardid LIKE 'TSN%') as sub
+LEFT JOIN (SELECT playerid, t.teamid, m.yearid, t.name as team_name, m.lgid as league
+		  FROM managers as m
+		  INNER JOIN teams as t
+		  ON m.teamid = t.teamid AND m.yearid = t.yearid) as tsub
+	ON sub.playerid = tsub.playerid AND sub.year = tsub.yearid
+WHERE tsn_count > 1
+ORDER BY sub.name, year
+
+
+WITH cte as(
+			SELECT sub.name as name, year, team_name, league
+		FROM (SELECT playerid, yearid as year, CONCAT(p.namefirst, ' ', p.namelast) as name, awardid, COUNT(playerid) OVER (PARTITION BY 			playerid) as tsn_count
+				FROM awardsmanagers as a
+				LEFT JOIN people as p
+				USING (playerid)
+			  WHERE awardid LIKE 'TSN%') as sub
+		LEFT JOIN (SELECT playerid, t.teamid, m.yearid, t.name as team_name, m.lgid as league
+				  FROM managers as m
+				  INNER JOIN teams as t
+				  ON m.teamid = t.teamid AND m.yearid = t.yearid
+				  GROUP BY playerid, m.yearid, t.teamid, t.name, m.lgid) as tsub
+			ON sub.playerid = tsub.playerid AND sub.year = tsub.yearid
+		WHERE tsn_count > 1) 
+		
+SELECT name, year, team_name, league
+FROM CTE					
+WHERE (SELECT COUNT(distinct league)
+								FROM cte as sub
+							   WHERE cte.name = sub.name) > 1
+ORDER BY name, year
+
 
 -- 10. Find all players who hit their career highest number of home runs in 2016. Consider only players who have played in the league for at least 10 years, and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.
 

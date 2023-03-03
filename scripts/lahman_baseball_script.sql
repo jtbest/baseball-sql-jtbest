@@ -198,41 +198,39 @@ LIMIT 1;
 
 -- 7.  From 1970 – 2016, what is the largest number of wins for a team that did not win the world series? What is the smallest number of wins for a team that did win the world series? Doing this will probably result in an unusually small number of wins for a world series champion – determine why this is the case. Then redo your query, excluding the problem year. How often from 1970 – 2016 was it the case that a team with the most wins also won the world series? What percentage of the time?
 
+
 SELECT name, yearid, w, WSwin
-FROM (SELECT name, yearid, WSwin, w
-	 FROM teams
-	 WHERE yearid BETWEEN '1970' AND '2016' AND WSwin = 'N') as sub
-WHERE w = (SELECT MAX(w)
-		  FROM teams
+FROM teams
+WHERE WSwin = 'N' AND yearid BETWEEN '1970' AND '2016' AND 
+	w = (SELECT MAX(w)
+		  FROM teams as sub
 		  WHERE WSwin = 'N' AND yearid BETWEEN '1970' AND '2016')
 
 -- Seattle Mariners in 2001 won 116 games and didn't win WS.
 
 SELECT name, yearid, w, WSwin
 FROM teams
-WHERE WSwin = 'Y' AND w = (SELECT MIN(w)
+WHERE WSwin = 'Y' AND yearid BETWEEN '1970' AND '2016' AND w = (SELECT MIN(w)
 		  FROM teams
 		  WHERE WSwin = 'Y' AND yearid BETWEEN '1970' AND '2016')
 
 -- LA Dodgers in 1981 won the WS and 63 games. Season shortened due to strike. 
 
 SELECT name, yearid, w, WSwin
-FROM (SELECT name, yearid, WSwin, w
-	 FROM teams
-	 WHERE WSwin = 'Y' AND (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016') ) as sub
-WHERE w = (SELECT MIN(w)
+FROM teams
+WHERE WSwin = 'Y' AND (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016') AND w = (SELECT MIN(w)
 		  FROM teams
 		  WHERE WSwin = 'Y' AND (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016'))
+
 		  
 -- St. Louis Cardinals in 2006 with 83 wins.
 
 WITH cte as (SELECT name, yearid, w, WSwin
-FROM (SELECT name, yearid, WSwin, w
-	 FROM teams
-	 WHERE (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016')) as sub
+FROM teams
 WHERE w IN (SELECT MAX(w) OVER (PARTITION BY yearid) as w
-			FROM teams as ts
-			 WHERE ts.yearid = sub.yearid))
+			FROM teams as sub
+			WHERE (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016') 
+				AND teams.yearid = sub.yearid))
 			 
 SELECT 
 	COUNT(*) as best_team_ws, 
@@ -243,12 +241,29 @@ SELECT
 FROM cte
 WHERE wswin = 'Y'
 
+-- Team with most wins has won the WS 12 times over this range, or 26.1% of the time
+
 
 -- 8. Using the attendance figures from the homegames table, find the teams and parks which had the top 5 average attendance per game in 2016 (where average attendance is defined as total attendance divided by number of games). Only consider parks where there were at least 10 games played. Report the park name, team name, and average attendance. Repeat for the lowest 5 average attendance.
 
-SELECT
+SELECT park_name, team, attendance/games as avg_attd, games
+FROM homegames
+JOIN parks
+USING (park)
+WHERE year = '2016' AND games >= 10
+ORDER BY attendance/games DESC 
+LIMIT 5;
 
 
+SELECT park, team, attendance/games as avg_attd, games
+FROM homegames
+WHERE year = '2016' AND games >= 10
+ORDER BY attendance/games 
+LIMIT 5;
+
+SELECT *
+FROM homegames
+WHERE year = '2016'
 -- 9. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)? Give their full name and the teams that they were managing when they won the award.
 
 -- 10. Find all players who hit their career highest number of home runs in 2016. Consider only players who have played in the league for at least 10 years, and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.

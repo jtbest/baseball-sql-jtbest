@@ -24,20 +24,103 @@ FROM appearances -- 1871 - 2016
 
 -- 2. Find the name and height of the shortest player in the database. How many games did he play in? What is the name of the team for which he played?
  
- SELECT DISTINCT CONCAT(namefirst, ' ', namelast), 
+SELECT DISTINCT CONCAT(namefirst, ' ', namelast), 
  		CONCAT(CAST(FLOOR(height::numeric / 12) AS varchar(10)) , ' ft ', CAST((MOD(height::numeric,12)) AS varchar(10)) , ' in') as height,
-		g_all as games_played, teamid, name
+		 CASE WHEN g_all = '1' THEN CONCAT(g_all,' game played for the ',name, ' in ', sub.yearid)
+												  	ELSE CONCAT(g_all,' games played for the ',name, 
+																' in ', sub.yearid) END as games_played, 
+			CASE WHEN (SELECT SUM(g_all)
+					FROM appearances as a
+					WHERE a.playerid=sub.playerid) ='1' THEN CONCAT((SELECT SUM(g_all)
+																	FROM appearances as a
+																	WHERE a.playerid=sub.playerid), 
+																	' total game played')
+					ELSE CONCAT((SELECT SUM(g_all)
+								FROM appearances as a
+								WHERE a.playerid=sub.playerid), ' total games played') 
+								END AS total_games
 	   
- FROM people
- INNER JOIN (SELECT playerid, teamid, g_all
+FROM people
+INNER JOIN (SELECT playerid, teamid, g_all, yearid
 		   FROM appearances
 		   WHERE playerid=(SELECT playerid
 						  FROM people
-						  WHERE height = (SELECT MIN(height)
+						  WHERE height IN (SELECT MIN(height)
 										 FROM people))) as sub
 	USING (playerid)
 INNER JOIN teams
 USING (teamid)
+
+SELECT DISTINCT CONCAT(namefirst, ' ', namelast), 
+ 		CONCAT(CAST(FLOOR(height::numeric / 12) AS varchar(10)) , ' ft ', CAST((MOD(height::numeric,12)) AS varchar(10)) , ' in') as height,
+		 CASE WHEN g_all = '1' THEN CONCAT(g_all,' game played for the ',name, ' in ', sub.yearid)
+												  	ELSE CONCAT(g_all,' games played for the ',name, ' in ', sub.yearid) END as games_played, 
+		CASE WHEN (SELECT SUM(g_all)
+					FROM appearances as a
+					WHERE a.playerid=sub.playerid) ='1' THEN CONCAT((SELECT SUM(g_all)
+																	FROM appearances as a
+																	WHERE a.playerid=sub.playerid), ' total game played')
+				ELSE CONCAT((SELECT SUM(g_all)
+							FROM appearances as a
+							WHERE a.playerid=sub.playerid), ' total games played') END AS total_games, games_by_team
+	   
+FROM people
+INNER JOIN (SELECT playerid, teamid, g_all, yearid
+		   FROM appearances
+		   WHERE playerid IN (SELECT playerid
+						  FROM people
+						  WHERE playerid LIKE 'aaron%')
+		   ORDER BY yearid) as sub
+	USING (playerid)
+INNER JOIN teams
+USING (teamid)
+INNER JOIN (SELECT playerid, teamid, yearid, SUM(g_all) as games_by_team
+		   FROM appearances
+		   GROUP BY teamid, playerid, yearid) as ap
+USING(playerid)
+
+
+
+
+SELECT namelast
+from people
+
+
+SELECT *
+		   FROM appearances
+		   ORDER BY playerid, yearid
+		   
+WITH cte AS (
+	SELECT playerid, 
+		   namefirst, 
+	       namelast, 
+	       height, 
+	       teamid,
+	       SUM(g_all) AS games_by_team
+	FROM people
+	LEFT JOIN appearances
+	USING(playerid)
+	WHERE playerid LIKE '%roberri%'
+	GROUP BY teamid,
+	         playerid, 
+	         namefirst, 
+	         namelast, 
+	         height
+	)
+	
+SELECT cte.namefirst, 
+       cte.namelast, 
+	   cte.height, 
+	   cte.teamid,
+	   games_by_team,
+	   total_player_games
+FROM cte
+LEFT JOIN (
+	SELECT playerid, SUM(g_all) AS total_player_games
+	FROM appearances
+	GROUP BY playerid) AS total
+USING(playerid)
+ORDER BY playerid, teamid
 
 -- Eddie Gaedel, 3ft7in, 1 game played for the St. Louis Browns
 
@@ -59,9 +142,10 @@ ORDER BY lifetime_salary DESC;
 
 SELECT 
 	CASE WHEN pos IN ('LF','RF','CF') THEN 'Outfield'
-	WHEN pos IN ('SS','1B','2B','3B') THEN 'Infield'
-	WHEN pos IN ('P','C') THEN 'Battery'
-	ELSE 'Not listed' END AS position_group, SUM(po) as total_putouts
+		WHEN pos IN ('SS','1B','2B','3B') THEN 'Infield'
+		WHEN pos IN ('P','C') THEN 'Battery'
+		ELSE 'Not listed' END AS position_group, 
+	SUM(po) as total_putouts
 FROM fieldingpost
 WHERE yearid = '2016'
 GROUP BY position_group
@@ -69,59 +153,100 @@ ORDER BY total_putouts DESC;
 
 -- 5. Find the average number of strikeouts per game by decade since 1920. Round the numbers you report to 2 decimal places. Do the same for home runs per game. Do you see any trends?
 
--- I keep fucking up how I'm counting games
+-- I keep fucking up how I'm counting games. Not sure why my older approach wasn't working. This isn't a perfect count of games played, but good enough for now. Consider revisiting. can also link to teams table to get an actual count of the games played per season by team. sum of games from teams table
 
 WITH games as ( 
-			SELECT DISTINCT yearid, MAX(g) as max_games, MAX(g) * COUNT(DISTINCT teamid)/2 as total_games, COUNT(distinct teamid) as teams, SUM(so) as so_total
+			SELECT DISTINCT yearid, MAX(g) as max_games, 
+			MAX(g) * COUNT(DISTINCT teamid)/2 as total_games, 
+			COUNT(distinct teamid) as teams, SUM(so) as so_total, 
+			CONCAT(FLOOR(yearID/10)*10,'s') as decade, 
+			SUM(hr) as hr_total
 			FROM batting
 			GROUP BY yearid)
-
-SELECT FLOOR(b.yearID/10)*10 as decade, SUM(so_total/total_games)
-FROM batting as b
-JOIN games
-USING (yearid)
-WHERE yearid >= '1920'
+			
+SELECT decade, ROUND(SUM(so_total)/SUM(total_games),2) as so_per_game, ROUND(SUM(hr_total)/SUM(total_games),2) as hr_per_game, SUM(total_games)
+FROM games
+WHERE yearid>= '1920'
 GROUP BY decade
 ORDER BY decade
 
+-- Positive correlation between home-runs and strike-outs
 
-WITH games as ( 
-			SELECT DISTINCT yearid, MAX(g) as max_games, MAX(g) * COUNT(DISTINCT teamid)/2 as total_games, COUNT(distinct teamid) as teams
-			FROM batting
-			GROUP BY yearid)
 
-SELECT CASE WHEN yearID BETWEEN '1920' AND '1929' then '1920s'
-			WHEN yearID BETWEEN '1930' AND '1939' then '1930s'
-			ELSE 'later' END as decade, SUM(max_games)
-FROM batting as b
-JOIN games
-USING (yearid)
-WHERE yearid >= '1920'
-GROUP BY decade
-ORDER BY decade
+					-- SELECT yearID, sum(so)/2430 -- estimate of games per season
+					-- FROM Batting 
+					-- GROUP BY yearid -- 24,000 so in 1991
 
-SELECT CASE WHEN yearID BETWEEN '1920' AND '1929' then '1920s'
-			WHEN yearID BETWEEN '1930' AND '1939' then '1930s'
-			ELSE 'later' END as decade, SUM(so)
-FROM batting
-WHERE yearid >= '1920'
-GROUP BY decade
-
-SELECT yearID, sum(so)/2430 -- estimate of games per season
-FROM Batting 
-GROUP BY yearid -- 24,000 so in 1991
-
-SELECT * 
-FROM batting 
+					-- SELECT * 
+					-- FROM batting 
 
 
 -- 6. Find the player who had the most success stealing bases in 2016, where __success__ is measured as the percentage of stolen base attempts which are successful. (A stolen base attempt results either in a stolen base or being caught stealing.) Consider only players who attempted _at least_ 20 stolen bases.
-	
+
+SELECT CONCAT(namefirst, ' ', namelast), sb, cs, 
+	CONCAT(ROUND(100*ROUND((sb::float/(cs + sb)::float)::numeric,3),1),'%') as steal_success
+FROM batting
+JOIN people
+	USING(playerid)
+WHERE yearid = '2016' 
+	AND (sb+cs) > 20
+ORDER BY steal_success DESC
+LIMIT 1;
+
+-- Chris Owings
+
 
 -- 7.  From 1970 – 2016, what is the largest number of wins for a team that did not win the world series? What is the smallest number of wins for a team that did win the world series? Doing this will probably result in an unusually small number of wins for a world series champion – determine why this is the case. Then redo your query, excluding the problem year. How often from 1970 – 2016 was it the case that a team with the most wins also won the world series? What percentage of the time?
 
+SELECT name, yearid, w, WSwin
+FROM (SELECT name, yearid, WSwin, w
+	 FROM teams
+	 WHERE yearid BETWEEN '1970' AND '2016' AND WSwin = 'N') as sub
+WHERE w = (SELECT MAX(w)
+		  FROM teams
+		  WHERE WSwin = 'N' AND yearid BETWEEN '1970' AND '2016')
+
+-- Seattle Mariners in 2001 won 116 games and didn't win WS.
+
+SELECT name, yearid, w, WSwin
+FROM teams
+WHERE WSwin = 'Y' AND w = (SELECT MIN(w)
+		  FROM teams
+		  WHERE WSwin = 'Y' AND yearid BETWEEN '1970' AND '2016')
+
+-- LA Dodgers in 1981 won the WS and 63 games. Season shortened due to strike. 
+
+SELECT name, yearid, w, WSwin
+FROM (SELECT name, yearid, WSwin, w
+	 FROM teams
+	 WHERE WSwin = 'Y' AND (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016') ) as sub
+WHERE w = (SELECT MIN(w)
+		  FROM teams
+		  WHERE WSwin = 'Y' AND (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016'))
+		  
+-- St. Louis Cardinals in 2006 with 83 wins.
+
+WITH cte as (SELECT name, yearid, w, WSwin
+FROM (SELECT name, yearid, WSwin, w
+	 FROM teams
+	 WHERE (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016')) as sub
+WHERE w IN (SELECT MAX(w) OVER (PARTITION BY yearid) as w
+			FROM teams as ts
+			 WHERE ts.yearid = sub.yearid))
+			 
+SELECT 
+	COUNT(*) as best_team_ws, 
+	CONCAT(ROUND((100 * COUNT(*)::float / (SELECT COUNT( DISTINCT yearid)
+											FROM teams
+											WHERE (yearid BETWEEN '1970' AND '1980' OR yearid BETWEEN '1982' AND '2016'))::float)::numeric, 1),'%') 
+											as pct_ws_highest_w
+FROM cte
+WHERE wswin = 'Y'
+
 
 -- 8. Using the attendance figures from the homegames table, find the teams and parks which had the top 5 average attendance per game in 2016 (where average attendance is defined as total attendance divided by number of games). Only consider parks where there were at least 10 games played. Report the park name, team name, and average attendance. Repeat for the lowest 5 average attendance.
+
+
 
 
 -- 9. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)? Give their full name and the teams that they were managing when they won the award.

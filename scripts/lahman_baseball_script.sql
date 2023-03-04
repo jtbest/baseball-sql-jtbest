@@ -165,7 +165,7 @@ WITH games as (
 			FROM batting
 			GROUP BY yearid)
 			
-SELECT decade, ROUND(SUM(so_total)/SUM(total_games),2) as so_per_game, ROUND(SUM(hr_total)/SUM(total_games),2) as hr_per_game, SUM(total_games)
+SELECT decade, ROUND(SUM(so_total)/SUM(total_games),2) as so_per_game, ROUND(SUM(hr_total)/SUM(total_games),2) as hr_per_game
 FROM games
 WHERE yearid>= '1920'
 GROUP BY decade
@@ -315,6 +315,7 @@ ORDER BY CONCAT(p.namefirst, ' ', p.namelast) -- This give all TSN winning manag
 SELECT * 
 FROM people
 WHERE namelast = 'Cox'
+
 SELECT *
 FROM awardsmanagers
 WHERE awardid LIKE 'TSN%' -- so in 1986 TSN switched to awarding for each league 
@@ -353,10 +354,11 @@ WITH cte as(
 SELECT name, year, team_name, league
 FROM CTE					
 WHERE (SELECT COUNT(distinct league)
-								FROM cte as sub
-							   WHERE cte.name = sub.name) > 1
-ORDER BY name, year
+		FROM cte as sub
+		WHERE cte.name = sub.name) > 1
+ORDER BY name, year -- this one works
 
+--consider playing around with ROLLUP here
 
 -- 10. Find all players who hit their career highest number of home runs in 2016. Consider only players who have played in the league for at least 10 years, and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.
 

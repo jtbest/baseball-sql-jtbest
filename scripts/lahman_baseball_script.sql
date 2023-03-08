@@ -425,7 +425,8 @@ WITH cte as (SELECT playerid, yearid, hrs
 						FROM batting
 						GROUP BY playerid, yearid) as sub
 			WHERE hrs in (SELECT MAX(hrs) OVER (PARTITION BY playerid)
-								FROM (SELECT playerid, yearid, SUM(hr) as hrs
+								FROM (SELECT playerid, yearid, 
+									  SUM(hr) as hrs
 										FROM batting as bb
 										GROUP BY playerid, yearid) as bsub
 								WHERE bsub.playerid = sub.playerid ) 
@@ -445,60 +446,266 @@ ORDER BY hrs DESC -- this one
 SELECT playerid, yearid, SUM(hr) as hrs
 FROM batting
 GROUP BY playerid, yearid
+--
+
 
 -- **Open-ended questions**
 
 -- 11. Is there any correlation between number of wins and team salary? Use data from 2000 and later to answer this question. As you do this analysis, keep in mind that salaries across the whole league tend to increase together, so you may want to look on a year-by-year basis.
 
-WITH s as (SELECT s.yearid, s.teamid, SUM(s.salary) as total_sal
-				FROM salaries as s
-		  		GROUP BY s.teamid,s.yearid)
-
-SELECT s.yearid, s.teamid, total_sal,
-	CASE WHEN ((total_sal-AVG(total_sal) OVER (Partition by s.yearid)::numeric)/total_sal)::numeric > 0 THEN CONCAT('+',ROUND(((total_sal-AVG(total_sal) OVER (Partition by s.yearid)::numeric)/total_sal)::numeric,2)::varchar) ELSE ROUND(((total_sal-AVG(total_sal) OVER (Partition by s.yearid)::numeric)/total_sal)::numeric,2) END as salary_pct_diff, 
-	t.w as wins, 
-	RANK() OVER (PARTITION BY s.yearid order by total_sal DESC ) as sal_rank, 
-	RANK() OVER (PARTITION BY t.yearid ORDER BY t.w DESC) as win_rank
-FROM s
-LEFT JOIN teams as t
-	ON t.teamid=s.teamid AND s.yearid=t.yearid
-ORDER BY yearid DESC, win_rank
-
 
 WITH s as (SELECT s.yearid, s.teamid, SUM(s.salary) as total_sal
 				FROM salaries as s
 		  		GROUP BY s.teamid,s.yearid)
 
 SELECT s.yearid, s.teamid, total_sal,
-	ROUND(((total_sal-AVG(total_sal) OVER (Partition by s.yearid)::numeric)/total_sal)::numeric,2) as salary_pct_diff,
+	ROUND(((total_sal-AVG(total_sal) OVER (Partition by s.yearid)::numeric)/AVG(total_sal) OVER (Partition by s.yearid))::numeric,2) as salary_pct_diff,
 	t.w as wins, 
 	RANK() OVER (PARTITION BY s.yearid order by total_sal DESC ) as sal_rank, 
 	RANK() OVER (PARTITION BY t.yearid ORDER BY t.w DESC) as win_rank
 FROM s
 LEFT JOIN teams as t
 	ON t.teamid=s.teamid AND s.yearid=t.yearid
+WHERE s.yearid >= '2000'
 ORDER BY yearid DESC, win_rank
 
--- 
+-- consider finding the avg or median sal_ranking for top 10 teams 
 
+WITH ranks as (
+				SELECT s.yearid, s.teamid, total_sal,
+			ROUND(((total_sal-AVG(total_sal) OVER (Partition by s.yearid)::numeric)/AVG(total_sal) OVER (Partition by s.yearid))::numeric,2) as salary_pct_diff,
+			t.w as wins, 
+			RANK() OVER (PARTITION BY s.yearid order by total_sal DESC ) as sal_rank, 
+			RANK() OVER (PARTITION BY t.yearid ORDER BY t.w DESC) as win_rank
+		FROM (SELECT s.yearid, s.teamid, SUM(s.salary) as total_sal
+						FROM salaries as s
+						GROUP BY s.teamid,s.yearid) as s
+		LEFT JOIN teams as t
+			ON t.teamid=s.teamid AND s.yearid=t.yearid
+		ORDER BY yearid DESC, win_rank)
 
+SELECT win_rank, ROUND(AVG(sal_rank),2) as avg_sal_rank
+FROM ranks
+WHERE ranks.yearid >= '2000'
+GROUP BY win_rank
+ORDER BY win_rank -- gives avg salary ranking for each win ranking
+--
 
-SELECT *
-FROM Salaries
+WITH ranks as (
+				SELECT s.yearid, s.teamid, total_sal,
+			ROUND(((total_sal-AVG(total_sal) OVER (Partition by s.yearid)::numeric)/AVG(total_sal) OVER (Partition by s.yearid))::numeric,2) as salary_pct_diff,
+			t.w as wins, 
+			RANK() OVER (PARTITION BY s.yearid order by total_sal DESC ) as sal_rank, 
+			RANK() OVER (PARTITION BY t.yearid ORDER BY t.w DESC) as win_rank
+		FROM (SELECT s.yearid, s.teamid, SUM(s.salary) as total_sal
+						FROM salaries as s
+						GROUP BY s.teamid,s.yearid) as s
+		LEFT JOIN teams as t
+			ON t.teamid=s.teamid AND s.yearid=t.yearid
+		ORDER BY yearid DESC, win_rank)
+
+SELECT sal_rank, ROUND(AVG(win_rank),2) as avg_win_rank
+FROM ranks
+WHERE ranks.yearid >= '2000'
+GROUP BY sal_rank
+ORDER BY sal_rank -- gives avg win ranking each salary ranking
+
+--
+
+WITH ranks as (
+				SELECT s.yearid, s.teamid, total_sal,
+			ROUND(((total_sal-AVG(total_sal) OVER (Partition by s.yearid)::numeric)/AVG(total_sal) OVER (Partition by s.yearid))::numeric,2) as salary_pct_diff,
+			t.w as wins, 
+			RANK() OVER (PARTITION BY s.yearid order by total_sal DESC ) as sal_rank, 
+			RANK() OVER (PARTITION BY t.yearid ORDER BY t.w DESC) as win_rank
+		FROM (SELECT s.yearid, s.teamid, SUM(s.salary) as total_sal
+						FROM salaries as s
+						GROUP BY s.teamid,s.yearid) as s
+		LEFT JOIN teams as t
+			ON t.teamid=s.teamid AND s.yearid=t.yearid
+		ORDER BY yearid DESC, win_rank
+										)
+
+SELECT ROUND(CORR(sal_rank,win_rank)::numeric,2) as correlation
+FROM ranks
+WHERE ranks.yearid >= '2000' -- 0.39 correlation between salary rank and win rank. moderate positive correlation
+
+--
+
+WITH ranks as (
+				SELECT s.yearid, s.teamid, total_sal,
+			ROUND(((total_sal-AVG(total_sal) OVER (Partition by s.yearid)::numeric)/AVG(total_sal) OVER (Partition by s.yearid))::numeric,2) as salary_pct_diff,
+			t.w as wins, 
+			RANK() OVER (PARTITION BY s.yearid order by total_sal DESC ) as sal_rank, 
+			RANK() OVER (PARTITION BY t.yearid ORDER BY t.w DESC) as win_rank
+		FROM (SELECT s.yearid, s.teamid, SUM(s.salary) as total_sal
+						FROM salaries as s
+						GROUP BY s.teamid,s.yearid) as s
+		LEFT JOIN teams as t
+			ON t.teamid=s.teamid AND s.yearid=t.yearid
+		ORDER BY yearid DESC, win_rank
+										)
+										
+SELECT ROUND(CORR(salary_pct_diff, wins)::numeric,2) as correlation
+FROM ranks
+WHERE ranks.yearid >= '2000' -- 0.40 correlation with % above avg salary and wins. may be a better model
+
 -- 12. In this question, you will explore the connection between number of wins and attendance.
---     <ol type="a">
---       <li>Does there appear to be any correlation between attendance at home games and number of wins? </li>
---       <li>Do teams that win the world series see a boost in attendance the following year? What about teams that made the playoffs? Making the playoffs means either being a division winner or a wild card winner.</li>
---     </ol>
+--   
+--      Does there appear to be any correlation between attendance at home games and number of wins? 
+--     Do teams that win the world series see a boost in attendance the following year? What about teams that made the playoffs? Making the playoffs means either being a division winner or a wild card winner.</li>
 
+SELECT CORR(w, attendance)
+FROM (SELECT yearid, teamid, w, attendance, (100*attendance - Lag(attendance) OVER (PARTITION BY teamid ORDER BY yearid))::float/Lag(attendance) OVER (PARTITION BY teamid ORDER BY 		yearid)::float as change_attn
+		FROM teams
+	  WHERE attendance IS NOT NULL) as sub -- correlation of 0.4
+
+	  
+SELECT CORR(w, change_attn)
+FROM (SELECT yearid, teamid, w, attendance, (100*attendance - Lag(attendance) OVER (PARTITION BY teamid ORDER BY yearid))::float/Lag(attendance) OVER (PARTITION BY teamid ORDER BY 		yearid)::float as change_attn
+		FROM teams
+	  WHERE attendance IS NOT NULL) as sub -- correlation of 0.11 with change in attendance
+--
+
+SELECT yearid, 
+	teamid,
+	wswin='Y' as ws_win,
+	divwin='Y' OR wcwin = 'Y' as playoffs,
+	LAG(w) OVER (Partition by teamid ORDER BY yearid) as last_year_w, attendance, 
+	CONCAT((ROUND(((100*attendance - Lag(attendance) OVER (PARTITION BY teamid ORDER BY yearid))::float/Lag(attendance) OVER (PARTITION BY teamid ORDER BY yearid)::float)::numeric, 
+	1))::varchar, '%') as change_attn
+FROM teams
+WHERE attendance IS NOT NULL
+Order by teamid, yearid
+--
+
+With attd as (
+			SELECT yearid, 
+			teamid,
+			wswin='Y' as ws_win,
+			divwin='Y' OR wcwin = 'Y' as playoffs,
+			LAG(w) OVER (Partition by teamid ORDER BY yearid) as last_year_w, attendance, 
+			(attendance - Lag(attendance) OVER (PARTITION BY teamid ORDER BY yearid))::float/
+						   Lag(attendance) OVER (PARTITION BY teamid ORDER BY yearid)::float as change_attn
+		FROM teams
+		WHERE attendance IS NOT NULL
+		Order by teamid, yearid
+								)
+SELECT ws_win, ROUND(100*AVG(change_attn::numeric),1)
+FROM attd
+WHERE ws_win IS NOT NULL
+GROUP BY ws_win -- 14.4% increase after WS win. 7% for all others
+--
+With attd as (
+			SELECT yearid, 
+			teamid,
+			wswin='Y' as ws_win,
+			divwin='Y' OR wcwin = 'Y' as playoffs,
+			LAG(w) OVER (Partition by teamid ORDER BY yearid) as last_year_w, attendance, 
+			(attendance - Lag(attendance) OVER (PARTITION BY teamid ORDER BY yearid))::float/
+						   Lag(attendance) OVER (PARTITION BY teamid ORDER BY yearid)::float as change_attn
+		FROM teams
+		WHERE attendance IS NOT NULL
+		Order by teamid, yearid
+								)
+SELECT playoffs, ROUND(100*AVG(change_attn::numeric),1)
+FROM attd
+WHERE playoffs IS NOT NULL
+GROUP BY playoffs -- 13.7% bump after making playoffs, 6% if not
 
 -- 13. It is thought that since left-handed pitchers are more rare, causing batters to face them less often, that they are more effective. Investigate this claim and present evidence to either support or dispute this claim. First, determine just how rare left-handed pitchers are compared with right-handed pitchers. Are left-handed pitchers more likely to win the Cy Young Award? Are they more likely to make it into the hall of fame?
 
-  
+With pitchers as (
+	SELECT distinct pi.playerid, throws
+	FROM pitching as pi
+	INNER JOIN people as po
+	USING (playerid)
+	WHERE throws IS NOT NULL)
 
+SELECT throws, COUNT(*)::float/(SELECT COUNT(*)
+				FROM pitchers)::float as throw_pct, COUNT(*)
+FROM pitchers
+WHERE throws <> 'S'
+GROUP BY throws -- 72% R, 28% L. Only 10% of overall pop is L
+--
+
+With pitchers as (
+	SELECT Distinct pi.playerid, throws, inducted, awardid
+	FROM pitching as pi
+	INNER JOIN people as po
+	USING (playerid)
+	LEFT JOIN awardsplayers
+	USING(playerid)
+	LEFT JOIN halloffame
+	USING(playerid)
+	WHERE throws IS NOT NULL)
+
+SELECT throws, (SELECT COUNT(*)
+			   FROM pitchers as psub
+			   WHERE awardid LIKE 'Cy%' AND psub.throws = pitchers.throws ) as cy_count,
+		(SELECT COUNT(*)
+			   FROM pitchers as psub
+			   WHERE awardid LIKE 'Cy%' AND psub.throws = pitchers.throws )::float/(SELECT COUNT(*)
+			   FROM pitchers as psub
+			   WHERE psub.throws = pitchers.throws )::float as pct_cy, (SELECT COUNT(*)
+			   FROM pitchers as psub
+			   WHERE awardid LIKE 'Cy%' AND psub.throws = pitchers.throws )::float/(86) as share_of_cy
+FROM pitchers
+WHERE throws <> 'S'
+GROUP BY throws -- 30% of Cy Young winners are L, compared to 28% in MLB and 10% in general pop
+--
+
+With pitchers as (
+	SELECT Distinct pi.playerid, throws, inducted, awardid
+	FROM pitching as pi
+	INNER JOIN people as po
+	USING (playerid)
+	LEFT JOIN awardsplayers
+	USING(playerid)
+	LEFT JOIN halloffame
+	USING(playerid)
+	WHERE throws IS NOT NULL)
+
+SELECT throws, (SELECT COUNT(*)
+			   FROM pitchers as psub
+			   WHERE inducted = 'Y' AND psub.throws = pitchers.throws ) as cy_count,
+		(SELECT COUNT(*)
+			   FROM pitchers as psub
+			   WHERE inducted = 'Y' AND psub.throws = pitchers.throws )::float/(SELECT COUNT(*)
+			   FROM pitchers as psub
+			   WHERE psub.throws = pitchers.throws )::float as pct_hf,(SELECT COUNT(*)
+			   FROM pitchers as psub
+			   WHERE inducted = 'Y' AND psub.throws = pitchers.throws )::float/(SELECT COUNT(*)
+			   FROM pitchers as psub
+			   WHERE inducted = 'Y')as share_of_hf
+FROM pitchers
+WHERE throws <> 'S'
+GROUP BY throws -- figure out why some of my numbers aren't adding up
+
+
+SELECT  playerid, yearid
+FROM awardsplayers
+WHErE awardid LIKE 'Cy%'
+ORDER BY yearid
+
+SELECT pi.playerid, throws, inducted, awardid
+	FROM pitching as pi
+	INNER JOIN people as po
+	USING (playerid)
+	LEFT JOIN awardsplayers
+	USING(playerid)
+	LEFT JOIN halloffame
+	USING(playerid)
+	WHERE throws IS NOT NULL AND awardid LIKE 'Cy%'
+	
+	
 -- ## Question 1: Rankings
 -- #### Question 1a: Warmup Question
 -- Write a query which retrieves each teamid and number of wins (w) for the 2016 season. Apply three window functions to the number of wins (ordered in descending order) - ROW_NUMBER, RANK, AND DENSE_RANK. Compare the output from these three functions. What do you notice?
+
+
+
+
 -- ​
 -- #### Question 1b: 
 -- Which team has finished in last place in its division (i.e. with the least number of wins) the most number of times? A team's division is indicated by the divid column in the teams table.

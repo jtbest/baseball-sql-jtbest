@@ -22,107 +22,7 @@
 SELECT CONCAT(MIN(yearid),' - ',MAX(yearid)) as year_range
 FROM appearances -- 1871 - 2016
 
--- 2. Find the name and height of the shortest player in the database. How many games did he play in? What is the name of the team for which he played?
- 
-SELECT DISTINCT CONCAT(namefirst, ' ', namelast), 
- 		CONCAT(CAST(FLOOR(height::numeric / 12) AS varchar(10)) , ' ft ', CAST((MOD(height::numeric,12)) AS varchar(10)) , ' in') as height,
-		 CASE WHEN g_all = '1' THEN CONCAT(g_all,' game played for the ',name, ' in ', sub.yearid)
-												  	ELSE CONCAT(g_all,' games played for the ',name, 
-																' in ', sub.yearid) END as games_played, 
-			CASE WHEN (SELECT SUM(g_all)
-					FROM appearances as a
-					WHERE a.playerid=sub.playerid) ='1' THEN CONCAT((SELECT SUM(g_all)
-																	FROM appearances as a
-																	WHERE a.playerid=sub.playerid), 
-																	' total game played')
-					ELSE CONCAT((SELECT SUM(g_all)
-								FROM appearances as a
-								WHERE a.playerid=sub.playerid), ' total games played') 
-								END AS total_games
-	   
-FROM people
-INNER JOIN (SELECT playerid, teamid, g_all, yearid
-		   FROM appearances
-		   WHERE playerid=(SELECT playerid
-						  FROM people
-						  WHERE height IN (SELECT MIN(height)
-										 FROM people))) as sub
-	USING (playerid)
-INNER JOIN teams
-USING (teamid)
 
-SELECT DISTINCT CONCAT(namefirst, ' ', namelast), 
- 		CONCAT(CAST(FLOOR(height::numeric / 12) AS varchar(10)) , ' ft ', CAST((MOD(height::numeric,12)) AS varchar(10)) , ' in') as height,
-		 CASE WHEN g_all = '1' THEN CONCAT(g_all,' game played for the ',name, ' in ', sub.yearid)
-												  	ELSE CONCAT(g_all,' games played for the ',name, ' in ', sub.yearid) END as games_played, 
-		CASE WHEN (SELECT SUM(g_all)
-					FROM appearances as a
-					WHERE a.playerid=sub.playerid) ='1' THEN CONCAT((SELECT SUM(g_all)
-																	FROM appearances as a
-																	WHERE a.playerid=sub.playerid), ' total game played')
-				ELSE CONCAT((SELECT SUM(g_all)
-							FROM appearances as a
-							WHERE a.playerid=sub.playerid), ' total games played') END AS total_games, games_by_team
-	   
-FROM people
-INNER JOIN (SELECT playerid, teamid, g_all, yearid
-		   FROM appearances
-		   WHERE playerid IN (SELECT playerid
-						  FROM people
-						  WHERE playerid LIKE 'aaron%')
-		   ORDER BY yearid) as sub
-	USING (playerid)
-INNER JOIN teams
-USING (teamid)
-INNER JOIN (SELECT playerid, teamid, yearid, SUM(g_all) as games_by_team
-		   FROM appearances
-		   GROUP BY teamid, playerid, yearid) as ap
-USING(playerid)
-
-
-
-
-SELECT namelast
-from people
-
-
-SELECT *
-		   FROM appearances
-		   ORDER BY playerid, yearid
-		   
-WITH cte AS (
-	SELECT playerid, 
-		   namefirst, 
-	       namelast, 
-	       height, 
-	       teamid,
-	       SUM(g_all) AS games_by_team
-	FROM people
-	LEFT JOIN appearances
-	USING(playerid)
-	WHERE playerid LIKE '%roberri%'
-	GROUP BY teamid,
-	         playerid, 
-	         namefirst, 
-	         namelast, 
-	         height
-	)
-	
-SELECT cte.namefirst, 
-       cte.namelast, 
-	   cte.height, 
-	   cte.teamid,
-	   games_by_team,
-	   total_player_games
-FROM cte
-LEFT JOIN (
-	SELECT playerid, SUM(g_all) AS total_player_games
-	FROM appearances
-	GROUP BY playerid) AS total
-USING(playerid)
-ORDER BY playerid, teamid
-
--- Eddie Gaedel, 3ft7in, 1 game played for the St. Louis Browns
 
 -- 3. Find all players in the database who played at Vanderbilt University. Create a list showing each player’s first and last names as well as the total salary they earned in the major leagues. Sort this list in descending order by the total salary earned. Which Vanderbilt player earned the most money in the majors?
 
@@ -154,7 +54,7 @@ ORDER BY total_putouts DESC;
 
 -- 5. Find the average number of strikeouts per game by decade since 1920. Round the numbers you report to 2 decimal places. Do the same for home runs per game. Do you see any trends?
 
--- I keep fucking up how I'm counting games. Not sure why my older approach wasn't working. This isn't a perfect count of games played, but good enough for now. Consider revisiting. can also link to teams table to get an actual count of the games played per season by team. sum of games from teams table
+-- I keep screwing up how I'm counting games. Not sure why my older approach wasn't working. This isn't a perfect count of games played, but good enough for now. Consider revisiting. can also link to teams table to get an actual count of the games played per season by team. sum of games from teams table
 
 WITH games as ( 
 			SELECT DISTINCT yearid, MAX(g) as max_games, 
